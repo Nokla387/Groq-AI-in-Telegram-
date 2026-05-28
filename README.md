@@ -1,5 +1,7 @@
 # Groq-AI-in-Telegram-
 
+Bot in telegram with one script
+
 How do I create keys?
 
 Groq key: we visit this website https://console.groq.com/keys and there we register / log in to the account, then we create a key under any name, be sure to copy and paste it into the script.
