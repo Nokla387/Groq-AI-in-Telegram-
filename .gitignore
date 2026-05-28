@@ -1,218 +1,96 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[codz]
-*$py.class
+import logging
+import sys
+from telegram import Update, constants
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from groq import Groq
 
-# C extensions
-*.so
+# Configuration
+TELEGRAM_TOKEN = "Telegram token"
+GROQ_API_KEY = "Groq key"
+MODEL_ID = "llama-3.3-70b-versatile"
+MAX_HISTORY = 10
 
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+# Initialization
+try:
+    groq_client = Groq(api_key=GROQ_API_KEY)
+except Exception as e:
+    sys.exit(f"Initialization error: {e}")
 
-# PyInstaller
-#   Usually these files are written by a python script from a template
-#   before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
+logging.basicConfig(
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
+async def get_chat_response(messages: list) -> str:
+    try:
+        completion = groq_client.chat.completions.create(
+            model=MODEL_ID,
+            messages=messages,
+            temperature=0.7
+        )
+        return completion.choices[0].message.content
+    except Exception as e:
+        logging.error(f"Groq API error: {e}")
+        return "Error processing request."
 
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py.cover
-.hypothesis/
-.pytest_cache/
-cover/
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Service active.")
 
-# Translations
-*.mo
-*.pot
+async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.chat_data['history'] = []
+    await update.message.reply_text("History cleared.")
 
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
+async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
 
-# Flask stuff:
-instance/
-.webassets-cache
+    chat_id = update.effective_chat.id
+    bot_username = context.bot.username
+    
+    is_private = update.message.chat.type == constants.ChatType.PRIVATE
+    is_reply = (update.message.reply_to_message and 
+                update.message.reply_to_message.from_user.id == context.bot.id)
+    is_mentioned = f"@{bot_username}" in update.message.text
 
-# Scrapy stuff:
-.scrapy
+    if not (is_private or is_reply or is_mentioned):
+        return
 
-# Sphinx documentation
-docs/_build/
+    prompt = update.message.text.replace(f"@{bot_username}", "").strip()
+    if not prompt:
+        return
 
-# PyBuilder
-.pybuilder/
-target/
+    if 'history' not in context.chat_data:
+        context.chat_data['history'] = []
+    
+    history = context.chat_data['history']
+    history.append({"role": "user", "content": prompt})
+    
+    if len(history) > MAX_HISTORY:
+        history = history[-MAX_HISTORY:]
+        context.chat_data['history'] = history
 
-# Jupyter Notebook
-.ipynb_checkpoints
+    await context.bot.send_chat_action(chat_id=chat_id, action=constants.ChatAction.TYPING)
 
-# IPython
-profile_default/
-ipython_config.py
+    system_msg = {"role": "system", "content": "Professional assistant. Concise answers."}
+    messages = [system_msg] + history
+    
+    response = await get_chat_response(messages)
+    context.chat_data['history'].append({"role": "assistant", "content": response})
 
-# pyenv
-#   For a library or package, you might want to ignore these files since the code is
-#   intended to run in multiple environments; otherwise, check them in:
-# .python-version
+    try:
+        await update.message.reply_text(response, parse_mode=constants.ParseMode.MARKDOWN)
+    except Exception:
+        await update.message.reply_text(response)
 
-# pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if having platform-specific dependencies or dependencies
-#   having no cross-platform support, pipenv may install dependencies that don't work, or not
-#   install all needed dependencies.
-# Pipfile.lock
+def main():
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-# UV
-#   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-# uv.lock
+    application.add_handler(CommandHandler("start", cmd_start))
+    application.add_handler(CommandHandler("clear", cmd_clear))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
 
-# poetry
-#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
-# poetry.lock
-# poetry.toml
+    print("Application status: Polling")
+    application.run_polling()
 
-# pdm
-#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
-#   pdm recommends including project-wide configuration in pdm.toml, but excluding .pdm-python.
-#   https://pdm-project.org/en/latest/usage/project/#working-with-version-control
-# pdm.lock
-# pdm.toml
-.pdm-python
-.pdm-build/
-
-# pixi
-#   Similar to Pipfile.lock, it is generally recommended to include pixi.lock in version control.
-# pixi.lock
-#   Pixi creates a virtual environment in the .pixi directory, just like venv module creates one
-#   in the .venv directory. It is recommended not to include this directory in version control.
-.pixi
-
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
-__pypackages__/
-
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
-
-# Redis
-*.rdb
-*.aof
-*.pid
-
-# RabbitMQ
-mnesia/
-rabbitmq/
-rabbitmq-data/
-
-# ActiveMQ
-activemq-data/
-
-# SageMath parsed files
-*.sage.py
-
-# Environments
-.env
-.envrc
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# PyCharm
-#   JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#   be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#   and can be added to the global gitignore or merged into this file.  For a more nuclear
-#   option (not recommended) you can uncomment the following to ignore the entire idea folder.
-# .idea/
-
-# Abstra
-#   Abstra is an AI-powered process automation framework.
-#   Ignore directories containing user credentials, local state, and settings.
-#   Learn more at https://abstra.io/docs
-.abstra/
-
-# Visual Studio Code
-#   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
-#   that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#   and can be added to the global gitignore or merged into this file. However, if you prefer, 
-#   you could uncomment the following to ignore the entire vscode folder
-# .vscode/
-# Temporary file for partial code execution
-tempCodeRunnerFile.py
-
-# Ruff stuff:
-.ruff_cache/
-
-# PyPI configuration file
-.pypirc
-
-# Marimo
-marimo/_static/
-marimo/_lsp/
-__marimo__/
-
-# Streamlit
-.streamlit/secrets.toml
+if __name__ == "__main__":
+    main()
